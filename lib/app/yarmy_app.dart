@@ -4,7 +4,9 @@ import '../features/camera_capture/presentation/camera_capture_screen.dart';
 import 'yarmy_theme.dart';
 
 class YarmyApp extends StatelessWidget {
-  const YarmyApp({super.key});
+  const YarmyApp({super.key, this.home});
+
+  final Widget? home;
 
   @override
   Widget build(BuildContext context) {
@@ -12,7 +14,7 @@ class YarmyApp extends StatelessWidget {
       title: 'Yarmy',
       debugShowCheckedModeBanner: false,
       theme: buildYarmyTheme(),
-      home: const CameraCaptureScreen(),
+      home: home ?? const CameraCaptureScreen(),
     );
   }
 }
