@@ -1,30 +1,39 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:mobile_yarmy/main.dart';
+import 'package:mobile_yarmy/app/yarmy_app.dart';
+import 'package:mobile_yarmy/features/camera_capture/domain/camera_capture_state.dart';
+import 'package:mobile_yarmy/features/camera_capture/domain/yarmy_camera_controller.dart';
+import 'package:mobile_yarmy/features/camera_capture/presentation/camera_capture_screen.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('shows camera preview shell as the first screen', (tester) async {
+    await tester.pumpWidget(
+      YarmyApp(
+        home: CameraCaptureScreen(controller: FakeYarmyCameraController()),
+      ),
+    );
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.text('Yarmy'), findsOneWidget);
+    expect(find.text('Настоящая история'), findsOneWidget);
+    expect(find.byKey(FakeYarmyCameraController.previewKey), findsOneWidget);
+    expect(find.text('Запись появится на следующем этапе'), findsOneWidget);
   });
+}
+
+class FakeYarmyCameraController extends YarmyCameraController {
+  static const previewKey = Key('fake-camera-preview');
+
+  @override
+  CameraCaptureState get state => const CameraCaptureState.ready();
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<void> pause() async {}
+
+  @override
+  Widget buildPreview(BuildContext context) {
+    return const ColoredBox(key: previewKey, color: Colors.black);
+  }
 }

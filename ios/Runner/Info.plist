@@ -26,6 +26,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Yarmy использует камеру, чтобы снимать настоящие истории внутри приложения.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Yarmy использует микрофон, чтобы записывать звук настоящей истории.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
