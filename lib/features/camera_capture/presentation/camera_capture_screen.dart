@@ -1,4 +1,5 @@
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../data/flutter_yarmy_camera_controller.dart';
@@ -33,7 +34,9 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.resumed:
-        _controller.initialize();
+        if (!_controller.state.isCaptured) {
+          _controller.initialize();
+        }
       case AppLifecycleState.inactive:
       case AppLifecycleState.hidden:
       case AppLifecycleState.paused:
@@ -66,7 +69,7 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
       body: Stack(
         children: [
           Positioned.fill(
-            child: state.isReady
+            child: state.hasCameraPreview
                 ? _LiveCameraPreview(controller: _controller)
                 : const _CameraLoadingBackdrop(),
           ),
@@ -74,7 +77,10 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
             child: SafeArea(
               child: CameraCaptureOverlay(
                 state: state,
+                recordingProgress: _controller.recordingProgress,
                 onRetry: _controller.initialize,
+                onStartRecording: _controller.startRecording,
+                onStopRecording: _controller.stopRecording,
               ),
             ),
           ),
@@ -91,10 +97,12 @@ class _LiveCameraPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
-      color: Colors.black,
-      child: Center(
-        child: SizedBox.expand(child: controller.buildPreview(context)),
+    return RepaintBoundary(
+      child: ColoredBox(
+        color: Colors.black,
+        child: Center(
+          child: SizedBox.expand(child: controller.buildPreview(context)),
+        ),
       ),
     );
   }
@@ -122,28 +130,48 @@ class CameraCaptureOverlay extends StatelessWidget {
   const CameraCaptureOverlay({
     super.key,
     required this.state,
+    required this.recordingProgress,
     required this.onRetry,
+    required this.onStartRecording,
+    required this.onStopRecording,
   });
 
   final CameraCaptureState state;
+  final ValueListenable<CameraRecordingProgress> recordingProgress;
   final VoidCallback onRetry;
+  final VoidCallback onStartRecording;
+  final VoidCallback onStopRecording;
 
   @override
   Widget build(BuildContext context) {
+    final shouldShowPanel =
+        !state.hasCameraPreview || state.status == CameraCaptureStatus.captured;
+
     return Padding(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const _CameraTopBar(),
-          const Spacer(),
-          if (!state.isReady)
-            CameraStatusPanel(state: state, onRetry: onRetry)
-                .animate()
-                .fadeIn(duration: 220.ms)
-                .moveY(begin: 8, end: 0, duration: 220.ms),
-          const Spacer(),
-          const _CameraBottomControls(),
+          _CameraTopBar(state: state, recordingProgress: recordingProgress),
+          Expanded(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: shouldShowPanel
+                    ? CameraStatusPanel(state: state, onRetry: onRetry)
+                          .animate()
+                          .fadeIn(duration: 220.ms)
+                          .moveY(begin: 8, end: 0, duration: 220.ms)
+                    : const SizedBox.shrink(),
+              ),
+            ),
+          ),
+          CameraBottomControls(
+            state: state,
+            recordingProgress: recordingProgress,
+            onStartRecording: onStartRecording,
+            onStopRecording: onStopRecording,
+          ),
         ],
       ),
     );
@@ -151,7 +179,10 @@ class CameraCaptureOverlay extends StatelessWidget {
 }
 
 class _CameraTopBar extends StatelessWidget {
-  const _CameraTopBar();
+  const _CameraTopBar({required this.state, required this.recordingProgress});
+
+  final CameraCaptureState state;
+  final ValueListenable<CameraRecordingProgress> recordingProgress;
 
   @override
   Widget build(BuildContext context) {
@@ -160,26 +191,101 @@ class _CameraTopBar extends StatelessWidget {
     return Row(
       children: [
         Text(
-          'Yarmy',
+          'Ярми',
           style: theme.textTheme.titleLarge?.copyWith(
             color: Colors.white,
             fontWeight: FontWeight.w700,
           ),
         ),
         const Spacer(),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.38),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text(
-            'Настоящая история',
-            style: theme.textTheme.labelMedium?.copyWith(color: Colors.white),
-          ),
+        AnimatedSwitcher(
+          duration: 180.ms,
+          child: state.isRecording
+              ? _RecordingTimerPill(
+                  key: const ValueKey('recording-timer'),
+                  recordingProgress: recordingProgress,
+                )
+              : const _StoryModePill(key: ValueKey('story-mode')),
         ),
       ],
     );
+  }
+}
+
+class _StoryModePill extends StatelessWidget {
+  const _StoryModePill({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.38),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        'Настоящая история',
+        style: theme.textTheme.labelMedium?.copyWith(color: Colors.white),
+      ),
+    );
+  }
+}
+
+class _RecordingTimerPill extends StatelessWidget {
+  const _RecordingTimerPill({super.key, required this.recordingProgress});
+
+  final ValueListenable<CameraRecordingProgress> recordingProgress;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE5484D),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const _RecordingPulseDot(),
+          const SizedBox(width: 8),
+          ValueListenableBuilder<CameraRecordingProgress>(
+            valueListenable: recordingProgress,
+            builder: (context, progress, _) {
+              return Text(
+                _formatDuration(progress.duration),
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RecordingPulseDot extends StatelessWidget {
+  const _RecordingPulseDot();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+          width: 8,
+          height: 8,
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white,
+          ),
+        )
+        .animate(onPlay: (controller) => controller.repeat(reverse: true))
+        .fade(begin: 0.35, end: 1, duration: 520.ms);
   }
 }
 
@@ -243,6 +349,8 @@ class CameraStatusPanel extends StatelessWidget {
     return switch (status) {
       CameraCaptureStatus.initializing => Icons.videocam_outlined,
       CameraCaptureStatus.ready => Icons.videocam,
+      CameraCaptureStatus.recording => Icons.fiber_manual_record,
+      CameraCaptureStatus.captured => Icons.check_circle_outline,
       CameraCaptureStatus.permissionDenied => Icons.no_photography_outlined,
       CameraCaptureStatus.unavailable => Icons.videocam_off_outlined,
       CameraCaptureStatus.failed => Icons.error_outline,
@@ -250,60 +358,213 @@ class CameraStatusPanel extends StatelessWidget {
   }
 }
 
-class _CameraBottomControls extends StatelessWidget {
-  const _CameraBottomControls();
+class CameraBottomControls extends StatelessWidget {
+  const CameraBottomControls({
+    super.key,
+    required this.state,
+    required this.recordingProgress,
+    required this.onStartRecording,
+    required this.onStopRecording,
+  });
+
+  final CameraCaptureState state;
+  final ValueListenable<CameraRecordingProgress> recordingProgress;
+  final VoidCallback onStartRecording;
+  final VoidCallback onStopRecording;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isEnabled = state.canRecord || state.isRecording;
 
     return Column(
       children: [
         Text(
-          'Запись появится на следующем этапе',
+          _labelForState(state),
           textAlign: TextAlign.center,
           style: theme.textTheme.labelLarge?.copyWith(
             color: Colors.white.withValues(alpha: 0.74),
           ),
         ),
         const SizedBox(height: 14),
-        const _RecordButtonPlaceholder(),
+        ValueListenableBuilder<CameraRecordingProgress>(
+          valueListenable: recordingProgress,
+          builder: (context, progress, _) {
+            return RecordButton(
+              isRecording: state.isRecording,
+              recordingProgress: progress,
+              isEnabled: isEnabled,
+              semanticsLabel: _recordButtonSemanticsLabel(state),
+              onPressStart: onStartRecording,
+              onPressEnd: onStopRecording,
+            );
+          },
+        ),
       ],
+    );
+  }
+
+  String _labelForState(CameraCaptureState state) {
+    return switch (state.status) {
+      CameraCaptureStatus.recording => 'Отпустите, чтобы остановить запись',
+      CameraCaptureStatus.captured => 'Видео снято. Предпросмотр будет дальше',
+      CameraCaptureStatus.ready => 'Удерживайте, чтобы снять историю',
+      _ => 'Камера пока недоступна',
+    };
+  }
+
+  String _recordButtonSemanticsLabel(CameraCaptureState state) {
+    return switch (state.status) {
+      CameraCaptureStatus.recording => 'Остановить запись',
+      CameraCaptureStatus.captured => 'Видео уже снято',
+      CameraCaptureStatus.ready => 'Начать запись',
+      _ => 'Запись недоступна',
+    };
+  }
+}
+
+class RecordButton extends StatelessWidget {
+  const RecordButton({
+    super.key,
+    required this.isRecording,
+    required this.recordingProgress,
+    required this.isEnabled,
+    required this.semanticsLabel,
+    required this.onPressStart,
+    required this.onPressEnd,
+  });
+
+  final bool isRecording;
+  final CameraRecordingProgress recordingProgress;
+  final bool isEnabled;
+  final String semanticsLabel;
+  final VoidCallback onPressStart;
+  final VoidCallback onPressEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    final progressTarget = isRecording
+        ? _projectedProgressTarget(recordingProgress)
+        : 0.0;
+    final progressAnimationDuration = isRecording
+        ? _progressAnimationDuration(recordingProgress)
+        : 120.ms;
+
+    return Center(
+      child: Semantics(
+        button: true,
+        enabled: isEnabled,
+        label: semanticsLabel,
+        onTap: isEnabled ? (isRecording ? onPressEnd : onPressStart) : null,
+        child:
+            Listener(
+                  behavior: HitTestBehavior.opaque,
+                  onPointerDown: isEnabled
+                      ? (_) {
+                          if (!isRecording) {
+                            onPressStart();
+                          }
+                        }
+                      : null,
+                  onPointerUp: isEnabled ? (_) => onPressEnd() : null,
+                  onPointerCancel: isEnabled ? (_) => onPressEnd() : null,
+                  child: SizedBox(
+                    width: 96,
+                    height: 96,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        TweenAnimationBuilder<double>(
+                          tween: Tween<double>(end: progressTarget),
+                          duration: progressAnimationDuration,
+                          curve: Curves.linear,
+                          builder: (context, animatedProgress, _) {
+                            return ExcludeSemantics(
+                              child: SizedBox(
+                                width: 96,
+                                height: 96,
+                                child: CircularProgressIndicator(
+                                  value: animatedProgress,
+                                  strokeWidth: 4,
+                                  backgroundColor: Colors.white.withValues(
+                                    alpha: 0.86,
+                                  ),
+                                  valueColor:
+                                      const AlwaysStoppedAnimation<Color>(
+                                        Color(0xFFE5484D),
+                                      ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                        Container(
+                          width: 78,
+                          height: 78,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.black.withValues(alpha: 0.24),
+                          ),
+                          child: Center(
+                            child: AnimatedContainer(
+                              duration: 160.ms,
+                              width: isRecording ? 28 : 56,
+                              height: isRecording ? 28 : 56,
+                              decoration: BoxDecoration(
+                                color: isEnabled
+                                    ? const Color(0xFFE5484D)
+                                    : Colors.white.withValues(alpha: 0.35),
+                                borderRadius: BorderRadius.circular(
+                                  isRecording ? 8 : 999,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+                .animate(target: isRecording ? 1 : 0)
+                .scale(
+                  begin: const Offset(1, 1),
+                  end: const Offset(1.06, 1.06),
+                  duration: 420.ms,
+                ),
+      ),
     );
   }
 }
 
-class _RecordButtonPlaceholder extends StatelessWidget {
-  const _RecordButtonPlaceholder();
+String _formatDuration(Duration duration) {
+  final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+  return '$minutes:$seconds';
+}
 
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Semantics(
-        label: 'Кнопка записи будет доступна позже',
-        child: Container(
-          width: 84,
-          height: 84,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.86),
-              width: 4,
-            ),
-            color: Colors.black.withValues(alpha: 0.2),
-          ),
-          child: Center(
-            child: Container(
-              width: 58,
-              height: 58,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: Color(0xFFE5484D),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
+double _projectedProgressTarget(CameraRecordingProgress progress) {
+  final maxDuration = progress.maxDuration;
+  if (maxDuration.inMilliseconds <= 0) {
+    return 0;
   }
+
+  final projectedDuration = progress.duration + const Duration(seconds: 1);
+  final cappedDuration = projectedDuration > maxDuration
+      ? maxDuration
+      : projectedDuration;
+
+  return CameraRecordingProgress(
+    duration: cappedDuration,
+    maxDuration: maxDuration,
+  ).fraction;
+}
+
+Duration _progressAnimationDuration(CameraRecordingProgress progress) {
+  final remainingDuration = progress.maxDuration - progress.duration;
+  if (remainingDuration <= Duration.zero) {
+    return Duration.zero;
+  }
+
+  const tickDuration = Duration(seconds: 1);
+  return remainingDuration < tickDuration ? remainingDuration : tickDuration;
 }
