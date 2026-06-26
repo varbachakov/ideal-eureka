@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Mobile Yarmy</string>
+	<string>Ярми</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>mobile_yarmy</string>
+	<string>Ярми</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -27,9 +27,9 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Yarmy использует камеру, чтобы снимать настоящие истории внутри приложения.</string>
+	<string>Ярми использует камеру, чтобы снимать настоящие истории внутри приложения.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Yarmy использует микрофон, чтобы записывать звук настоящей истории.</string>
+	<string>Ярми использует микрофон, чтобы записывать звук настоящей истории.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

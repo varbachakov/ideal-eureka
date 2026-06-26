@@ -11,7 +11,7 @@ class YarmyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Yarmy',
+      title: 'Ярми',
       debugShowCheckedModeBanner: false,
       theme: buildYarmyTheme(),
       home: home ?? const CameraCaptureScreen(),
