@@ -46,7 +46,6 @@ class FlutterYarmyCameraController extends YarmyCameraController {
            cameraSessionFactory ?? _createDefaultCameraSession;
 
   static const Duration maxRecordingDuration = Duration(seconds: 60);
-  static const Duration _recordingProgressTickInterval = Duration(seconds: 1);
 
   final YarmyCameraSessionFactory _cameraSessionFactory;
 
@@ -56,9 +55,8 @@ class FlutterYarmyCameraController extends YarmyCameraController {
       ValueNotifier(
         const CameraRecordingProgress(maxDuration: maxRecordingDuration),
       );
-  Timer? _recordingProgressTimer;
   Timer? _maxRecordingTimer;
-  DateTime? _recordingStartedAt;
+  _StopwatchCameraRecordingClock? _recordingClock;
   Future<void>? _startRecordingFuture;
   Future<void>? _stopRecordingFuture;
   int _cameraOperationId = 0;
@@ -145,7 +143,7 @@ class FlutterYarmyCameraController extends YarmyCameraController {
     _shouldKeepCameraOpen = false;
     _cameraOperationId++;
 
-    await _disposeCameraSession();
+    await _disposeCameraSession(resetProgress: !_state.isCaptured);
 
     if (!_isDisposed &&
         (_state.status == CameraCaptureStatus.initializing || _state.isReady)) {
@@ -202,9 +200,11 @@ class FlutterYarmyCameraController extends YarmyCameraController {
         return;
       }
 
-      _recordingStartedAt = DateTime.now();
-      _setRecordingState(Duration.zero);
-      _startRecordingTimers();
+      final clock = _StopwatchCameraRecordingClock.start();
+      _recordingClock = clock;
+      _setRecordingProgress(Duration.zero, clock: clock);
+      _setRecordingState();
+      _startRecordingTimers(clock: clock);
     } on CameraException catch (error) {
       if (_isCurrentCameraOperation(operationId)) {
         _setState(_mapCameraException(error));
@@ -368,7 +368,10 @@ class FlutterYarmyCameraController extends YarmyCameraController {
     }
 
     final duration = _currentRecordingDuration();
-    _stopRecordingTimers();
+    _stopRecordingTimers(resetProgress: !keepCapturedVideo);
+    if (keepCapturedVideo) {
+      _setRecordingProgress(duration);
+    }
 
     try {
       final path = await session.stopVideoRecording();
@@ -378,7 +381,7 @@ class FlutterYarmyCameraController extends YarmyCameraController {
             video: CapturedVideo(path: path, duration: duration),
           ),
         );
-        await _disposeCameraSession();
+        await _disposeCameraSession(resetProgress: false);
       } else {
         _setState(const CameraCaptureState.ready());
       }
@@ -401,40 +404,36 @@ class FlutterYarmyCameraController extends YarmyCameraController {
     }
   }
 
-  void _startRecordingTimers() {
-    _recordingProgressTimer?.cancel();
-    _recordingProgressTimer = null;
+  void _startRecordingTimers({required CameraRecordingClock clock}) {
     _maxRecordingTimer?.cancel();
     _maxRecordingTimer = null;
-    _setRecordingProgress(Duration.zero);
-    _recordingProgressTimer = Timer.periodic(_recordingProgressTickInterval, (
-      _,
-    ) {
-      _setRecordingProgress(_currentRecordingDuration());
-    });
-    _maxRecordingTimer = Timer(maxRecordingDuration, () {
-      unawaited(stopRecording());
-    });
+    final elapsedDuration = clock.elapsed;
+    final remainingDuration = maxRecordingDuration - elapsedDuration;
+    _maxRecordingTimer = Timer(
+      remainingDuration > Duration.zero ? remainingDuration : Duration.zero,
+      () {
+        unawaited(stopRecording());
+      },
+    );
   }
 
   void _stopRecordingTimers({bool resetProgress = true}) {
-    _recordingProgressTimer?.cancel();
-    _recordingProgressTimer = null;
     _maxRecordingTimer?.cancel();
     _maxRecordingTimer = null;
-    _recordingStartedAt = null;
+    _recordingClock?.stop();
+    _recordingClock = null;
     if (resetProgress && !_isDisposed) {
       _setRecordingProgress(Duration.zero);
     }
   }
 
   Duration _currentRecordingDuration() {
-    final startedAt = _recordingStartedAt;
-    if (startedAt == null) {
+    final clock = _recordingClock;
+    if (clock == null) {
       return Duration.zero;
     }
 
-    final duration = DateTime.now().difference(startedAt);
+    final duration = clock.elapsed;
     if (duration > maxRecordingDuration) {
       return maxRecordingDuration;
     }
@@ -442,19 +441,15 @@ class FlutterYarmyCameraController extends YarmyCameraController {
     return duration;
   }
 
-  void _setRecordingState(Duration duration) {
-    _setState(
-      CameraCaptureState.recording(
-        recordingDuration: duration,
-        maxRecordingDuration: maxRecordingDuration,
-      ),
-    );
+  void _setRecordingState() {
+    _setState(const CameraCaptureState.recording());
   }
 
-  void _setRecordingProgress(Duration duration) {
+  void _setRecordingProgress(Duration duration, {CameraRecordingClock? clock}) {
     _recordingProgress.value = CameraRecordingProgress(
       duration: duration,
       maxDuration: maxRecordingDuration,
+      clock: clock,
     );
   }
 
@@ -470,8 +465,8 @@ class FlutterYarmyCameraController extends YarmyCameraController {
         !_state.isCaptured;
   }
 
-  Future<void> _disposeCameraSession() async {
-    _stopRecordingTimers();
+  Future<void> _disposeCameraSession({bool resetProgress = true}) async {
+    _stopRecordingTimers(resetProgress: resetProgress);
     final session = _cameraSession;
     _cameraSession = null;
     await session?.dispose();
@@ -613,6 +608,22 @@ final class _FlutterYarmyCameraSession implements YarmyCameraSession {
     final disposeFuture = _controller.dispose();
     _disposeFuture = disposeFuture;
     return disposeFuture;
+  }
+}
+
+final class _StopwatchCameraRecordingClock implements CameraRecordingClock {
+  _StopwatchCameraRecordingClock.start() : _stopwatch = Stopwatch()..start();
+
+  final Stopwatch _stopwatch;
+
+  @override
+  Duration get elapsed => _stopwatch.elapsed;
+
+  @override
+  bool get isRunning => _stopwatch.isRunning;
+
+  void stop() {
+    _stopwatch.stop();
   }
 }
 
