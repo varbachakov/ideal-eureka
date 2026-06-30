@@ -337,7 +337,7 @@ void main() {
   });
 
   test(
-    'recording progress updates without camera state notifications',
+    'recording progress is derived from monotonic clock without state ticks',
     () async {
       final session = FakeYarmyCameraSession();
       final controller = FlutterYarmyCameraController(
@@ -357,11 +357,14 @@ void main() {
 
       await controller.startRecording();
       expect(stateNotificationCount, 1);
+      expect(progressNotificationCount, 1);
+      expect(controller.recordingProgress.value.clock, isNotNull);
 
       await Future<void>.delayed(const Duration(milliseconds: 1100));
 
-      expect(progressNotificationCount, greaterThanOrEqualTo(1));
-      expect(controller.recordingProgress.value.duration, isNot(Duration.zero));
+      final frameDuration = controller.recordingProgress.value.currentDuration;
+      expect(progressNotificationCount, 1);
+      expect(frameDuration, isNot(Duration.zero));
       expect(stateNotificationCount, 1);
 
       await controller.stopRecording();
@@ -369,7 +372,7 @@ void main() {
     },
   );
 
-  test('stop resets recording progress after capture', () async {
+  test('stop keeps recording progress after capture', () async {
     final session = FakeYarmyCameraSession();
     final controller = FlutterYarmyCameraController(
       cameraSessionFactory: () async => session,
@@ -379,14 +382,37 @@ void main() {
     await controller.startRecording();
     await Future<void>.delayed(const Duration(milliseconds: 1100));
 
-    expect(controller.recordingProgress.value.duration, isNot(Duration.zero));
+    expect(
+      controller.recordingProgress.value.currentDuration,
+      isNot(Duration.zero),
+    );
 
     await controller.stopRecording();
 
     expect(controller.state.isCaptured, isTrue);
-    expect(controller.recordingProgress.value.duration, Duration.zero);
+    final capturedDuration = controller.state.capturedVideo?.duration;
+    expect(capturedDuration, isNotNull);
+    expect(controller.recordingProgress.value.duration, capturedDuration);
 
     controller.dispose();
+  });
+
+  test('recording progress clamps clock-derived duration', () {
+    final clock = FakeCameraRecordingClock(
+      elapsed: const Duration(seconds: 90),
+    );
+    final progress = CameraRecordingProgress(
+      maxDuration: const Duration(seconds: 60),
+      clock: clock,
+    );
+
+    expect(progress.currentDuration, const Duration(seconds: 60));
+    expect(progress.currentFraction, 1);
+
+    clock.elapsed = const Duration(seconds: 30);
+
+    expect(progress.currentDuration, const Duration(seconds: 30));
+    expect(progress.currentFraction, 0.5);
   });
 
   test('repeated initialize and pause disposes each session once', () async {
@@ -523,4 +549,14 @@ final class FakeYarmyCameraSession implements YarmyCameraSession {
     isDisposed = true;
     disposeCallCount++;
   }
+}
+
+final class FakeCameraRecordingClock implements CameraRecordingClock {
+  FakeCameraRecordingClock({required this.elapsed, this.isRunning = true});
+
+  @override
+  Duration elapsed;
+
+  @override
+  bool isRunning;
 }
